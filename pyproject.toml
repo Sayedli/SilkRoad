@@ -1,0 +1,56 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "silkroad"
+version = "0.1.0"
+description = "Modular algorithmic trading bot framework with data, strategy, backtesting, and execution layers."
+authors = [{ name = "Hassan Ali" }]
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+keywords = ["algorithmic-trading", "quant", "backtesting", "ibkr"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Topic :: Office/Business :: Financial :: Investment",
+]
+dependencies = [
+    "pandas>=2.2",
+    "numpy>=1.26",
+    "pydantic>=2.7",
+    "ccxt>=4.2",
+    "backtrader>=1.9",
+    "click>=8.1",
+    "pyyaml>=6.0",
+    "requests>=2.32",
+    "tenacity>=8.2",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.2",
+    "ruff>=0.4",
+    "mypy>=1.10",
+    "python-dotenv>=1.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/hassanali/SilkRoad"
+Documentation = "https://github.com/hassanali/SilkRoad#readme"
+Source = "https://github.com/hassanali/SilkRoad"
+Issues = "https://github.com/hassanali/SilkRoad/issues"
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+select = ["E", "F", "I", "UP", "B"]
+ignore = ["E203", "E266"]
+
+[tool.mypy]
+python_version = "3.10"
+warn_unused_configs = true
+disallow_untyped_defs = true
+ignore_missing_imports = true
