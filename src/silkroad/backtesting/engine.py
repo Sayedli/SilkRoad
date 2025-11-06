@@ -83,10 +83,16 @@ class BacktestEngine:
         run_id = uuid4().hex
         completed_at = pd.Timestamp.utcnow().to_pydatetime()
         extra_metrics = {}
+
+        price_series = prepared_history["close"].copy()
+        equity_curve = None
         if hasattr(bridge.analyzers, "returns"):
             returns = bridge.analyzers.returns.get_analysis()
             if returns:
-                extra_metrics["avg_daily_return"] = float(pd.Series(list(returns.values())).mean())
+                returns_series = pd.Series(list(returns.values()), index=pd.to_datetime(list(returns.keys())))
+                returns_series = returns_series.sort_index()
+                equity_curve = (1 + returns_series).cumprod() * self.config.starting_cash
+                extra_metrics["avg_daily_return"] = float(returns_series.mean())
 
         result = BacktestResult(
             strategy_name=self.strategy.name,
@@ -98,6 +104,8 @@ class BacktestEngine:
             run_id=run_id,
             completed_at=completed_at,
             extra_metrics=extra_metrics,
+            price_series=price_series,
+            equity_curve=equity_curve,
         )
 
         if self.analytics:
