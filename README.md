@@ -1,56 +1,90 @@
 # SilkRoad
 
-SilkRoad is a modular algorithmic trading bot designed for showcasing production-ready architecture while remaining practical for strategy research, backtesting, and live deployment. The stack favors readability and extensibility so you can iterate on strategies quickly and plug into venues ranging from paper-trading to Interactive Brokers.
+SilkRoad is a modular algorithmic trading framework built to look great on a résumé **and** stand up to real-world deployment. The codebase demonstrates production-minded patterns—typed configuration, pluggable data pipelines, strategy registries, risk controls, analytics logging, and exchange abstractions—while staying approachable for rapid experimentation.
 
-## Key Capabilities
-- Data layer with pluggable feeds (CCXT for crypto, in-memory feeds for tests).
-- Strategy engine with registry pattern for quickly adding new alpha models.
-- Execution abstraction with paper trading and Interactive Brokers connectivity via `ib_insync`.
-- Backtesting harness powered by Backtrader with analytics-friendly result exports.
-- Risk management hooks plus monitoring/notification adapters.
-- SQLite-backed analytics store for trades and performance metrics.
+## Feature Highlights
+- **Config-driven architecture** – Compose runs entirely from YAML: swap strategies, data sources, execution venues, and analytics without touching code.
+- **Multi-venue market data** – Use CCXT for crypto venues, static feeds for tests, or plug in new sources via a simple factory API.
+- **Strategy engine** – Author Python strategies by implementing `prepare` + `generate_signal`; register them for instant CLI availability.
+- **Execution adapters** – Ship with a paper engine for dry runs and an Interactive Brokers connector (via `ib_insync`) that sizes orders off real account equity.
+- **Backtesting with Backtrader** – Run historical simulations, compute Sharpe/returns, and persist metrics to SQLite for analysis.
+- **Risk & monitoring hooks** – Enforce position sizing limits before orders leave the building and wire notifications wherever you like.
 
-## Project Layout
-- `src/silkroad/config`: Typed configuration models and YAML loader.
-- `src/silkroad/data`: Market data feeds (CCXT, static) and factory helpers.
-- `src/silkroad/strategy`: Strategy base class, registry, and reference momentum strategy.
-- `src/silkroad/execution`: Execution engines (paper, IBKR) and registry.
-- `src/silkroad/backtesting`: Backtesting engine with Backtrader bridge and result helpers.
-- `src/silkroad/risk`: Risk limit definitions and validation logic.
-- `src/silkroad/monitoring`: Notification interface (print logger for now).
-- `src/silkroad/analytics`: SQLite persistence helpers for trades and metrics.
-- `src/silkroad/cli`: Click-powered CLI entry point.
+## Architecture at a Glance
+| Layer | Responsibilities | Key Modules |
+| --- | --- | --- |
+| Configuration | Typed settings, YAML loader, dependency wiring | `src/silkroad/config/` |
+| Data | OHLCV feeds, streaming snapshots, test harnesses | `src/silkroad/data/` |
+| Strategy | Base classes, registries, sample momentum model | `src/silkroad/strategy/` |
+| Execution | Paper + IBKR engines, shared interfaces | `src/silkroad/execution/` |
+| Backtesting | Backtrader bridge, analytics-friendly results | `src/silkroad/backtesting/` |
+| Risk & Monitoring | Risk limits, notifications, analytics store | `src/silkroad/risk/`, `src/silkroad/monitoring/`, `src/silkroad/analytics/` |
+| CLI | Click-powered entry point for backtests and live trading | `src/silkroad/cli/main.py` |
 
-## Getting Started
-1. Install dependencies (use your preferred tool, e.g. `uv`, `poetry`, or `pip`):
+## Quickstart
+1. **Set up an isolated environment** (example with the included venv):
    ```bash
-   pip install -e .
-   pip install -e .[dev]  # optional extras
+   python3 -m venv .venv
+   source .venv/bin/activate
+   pip install -e '.[dev]'
    ```
-2. Copy the example config and adjust credentials/symbols:
+2. **Create a working config**:
    ```bash
    cp configs/example.paper.yml configs/local.yml
    ```
-3. Run a paper session:
-   ```bash
-   silkroad --config configs/local.yml live
-   ```
-4. Backtest:
+   Edit `configs/local.yml` to adjust symbols, strategy parameters, or swap `execution.name` to `ibkr` once you are ready.
+3. **Run a backtest**:
    ```bash
    silkroad --config configs/local.yml backtest
    ```
-   Results print to the console and persist into `analytics/silkroad.db` when analytics are enabled.
+   The CLI prints headline performance and stores results in `analytics/silkroad.db` when analytics are enabled.
+4. **Paper trade against live data**:
+   ```bash
+   silkroad --config configs/local.yml live
+   ```
+   Signals are generated from CCXT snapshots, orders are simulated, and fills are logged to the analytics store.
+5. **(Optional) IBKR connectivity**:
+   - Ensure Trader Workstation (paper or live) or IB Gateway is running.
+   - Set `execution.name: ibkr` and provide `client_id`, `host`, `port`, etc. inside `execution.parameters`.
+   - Begin in IBKR’s paper account; confirm risk limits before switching live.
 
-## IBKR Roadmap
-The `IBKRExecutionEngine` in `src/silkroad/execution/ibkr.py` boots an `ib_insync` client, sizes orders off Net Liquidation value, and logs fills into the analytics store. Next milestones to consider:
-1. Support bracket/stop orders and smarter scaling logic.
-2. Add automatic reconnection and heartbeat monitoring for TWS/Gateway sessions.
-3. Stream primary market data through IBKR instead of external feeds.
-4. Extend analytics to capture slippage versus reference prices and risk-attribution stats.
+## Configuration Reference
+Key sections in a YAML config:
+- `data`: choose a feed (`ccxt:binance`, `static`, etc.), symbol (e.g., `BTC/USDT`), interval (`1h`, `15m`), lookback, and feed-specific parameters.
+- `strategy`: name of a registered strategy (`momentum`) and its hyperparameters (fast/slow windows, thresholds, order sizing).
+- `execution`: select `paper` or `ibkr` and pass engine-specific parameters (poll intervals, IBKR connection details).
+- `backtest`: starting cash, commission, slippage settings; toggle analytics.
+- `risk`: position limits, drawdown caps, stop-loss defaults.
+- `monitoring`: turn on/off notification channels (print, Slack, email, etc.—custom integrations can register new notifiers).
+- `analytics`: configure the SQLite database path or swap in a different backend when you add one.
 
-## Development
-- Linting: `ruff check src tests`
-- Type checks: `mypy src`
-- Tests: `pytest`
+## Analytics & Tooling
+- Trades and performance metrics are logged via `src/silkroad/analytics/logger.py` to a SQLite database (`analytics/silkroad.db` by default).
+- Explore results with your favorite tools (DBeaver, Datasette, pandas) or plug the DB into dashboards.
+- Extend `AnalyticsStore` to pipe metrics into DuckDB, Postgres, or cloud warehouses as your needs grow.
 
-Contributions are welcome—open issues or PRs as ideas evolve.
+## Testing & Quality Gates
+- Unit tests: `pytest`
+- Static typing: `mypy src`
+- Linting & formatting: `ruff check src tests`
+- Bytecode sanity check: `python -m compileall src`
+
+## Extending SilkRoad
+- **New strategies**: Create a class inheriting `Strategy`, register it via `register_strategy`, and reference it in config.
+- **Custom data feeds**: Implement `MarketDataFeed.load_history` + `stream`, then register it in `data.factory.build_data_feed`.
+- **Execution venues**: Subclass `ExecutionEngine` for new brokers or protocols, register the engine, and expose config parameters.
+- **Analytics**: Expand the SQLite schema or add new sinks (e.g., metrics APIs, message queues) through the analytics module.
+
+## Résumé Talking Points
+- Designed a configurable, multi-venue trading platform with hot-swappable strategies and execution backends.
+- Implemented Backtrader-based backtesting with automated Sharpe/return analytics and persistent trade logging.
+- Integrated Interactive Brokers via `ib_insync`, including account-aware sizing, risk gating, and telemetry.
+- Established quality pipelines (tests, type hints, linting) and production ergonomics (CLI, config validation, analytics store).
+
+## Roadmap Ideas
+1. Add strategy optimization tooling (parameter sweeps, Bayesian tuning) with automatic metric tracking.
+2. Enhance monitoring—Slack, PagerDuty, or metrics exporters (Prometheus, InfluxDB).
+3. Expand execution to crypto exchanges (Binance Spot/Futures via CCXT) and equities APIs (Alpaca, Polygon).
+4. Ship a small Streamlit dashboard for visualizing backtest equity curves and live performance.
+
+Happy trading—feel free to fork, customize, and show off SilkRoad as your end-to-end quant stack.
