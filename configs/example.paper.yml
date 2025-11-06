@@ -1,0 +1,33 @@
+environment: development
+data:
+  source: ccxt:binance
+  symbol: BTC/USDT
+  interval: 1h
+  lookback: 200
+  poll_interval: 30
+strategy:
+  name: momentum
+  parameters:
+    fast_window: 20
+    slow_window: 50
+    threshold: 10
+    order_size: 0.1
+execution:
+  name: paper
+  parameters: {}
+backtest:
+  enabled: true
+  starting_cash: 10000
+  commission: 0.00075
+risk:
+  max_position_size: 0.2
+  max_drawdown: 0.3
+  stop_loss_pct: 0.05
+monitoring:
+  enabled: true
+  channels:
+    print: {}
+analytics:
+  enabled: true
+  backend: sqlite
+  database: analytics/silkroad.db

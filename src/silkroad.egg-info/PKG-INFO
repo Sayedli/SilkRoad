@@ -1,3 +1,36 @@
+Metadata-Version: 2.4
+Name: silkroad
+Version: 0.1.0
+Summary: Modular algorithmic trading bot framework with data, strategy, backtesting, and execution layers.
+Author: Hassan Ali
+License: MIT
+Project-URL: Homepage, https://github.com/hassanali/SilkRoad
+Project-URL: Documentation, https://github.com/hassanali/SilkRoad#readme
+Project-URL: Source, https://github.com/hassanali/SilkRoad
+Project-URL: Issues, https://github.com/hassanali/SilkRoad/issues
+Keywords: algorithmic-trading,quant,backtesting,ibkr
+Classifier: Programming Language :: Python :: 3
+Classifier: License :: OSI Approved :: MIT License
+Classifier: Operating System :: OS Independent
+Classifier: Topic :: Office/Business :: Financial :: Investment
+Requires-Python: >=3.10
+Description-Content-Type: text/markdown
+Requires-Dist: pandas>=2.2
+Requires-Dist: numpy>=1.26
+Requires-Dist: pydantic>=2.7
+Requires-Dist: ccxt>=4.2
+Requires-Dist: backtrader>=1.9
+Requires-Dist: ib-insync>=0.9
+Requires-Dist: click>=8.1
+Requires-Dist: pyyaml>=6.0
+Requires-Dist: requests>=2.32
+Requires-Dist: tenacity>=8.2
+Provides-Extra: dev
+Requires-Dist: pytest>=8.2; extra == "dev"
+Requires-Dist: ruff>=0.4; extra == "dev"
+Requires-Dist: mypy>=1.10; extra == "dev"
+Requires-Dist: python-dotenv>=1.0; extra == "dev"
+
 # SilkRoad
 
 SilkRoad is a modular algorithmic trading bot designed for showcasing production-ready architecture while remaining practical for strategy research, backtesting, and live deployment. The stack favors readability and extensibility so you can iterate on strategies quickly and plug into venues ranging from paper-trading to Interactive Brokers.

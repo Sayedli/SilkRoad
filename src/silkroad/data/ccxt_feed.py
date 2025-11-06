@@ -19,13 +19,14 @@ class CCXTFeed(MarketDataFeed):
         interval: str,
         lookback: int,
         poll_interval: float = 5.0,
+        **client_kwargs,
     ) -> None:
         super().__init__(symbol=symbol, interval=interval, lookback=lookback)
         try:
             exchange_cls = getattr(ccxt, exchange_id)
         except AttributeError as exc:
             raise ValueError(f"Exchange '{exchange_id}' is not supported by ccxt.") from exc
-        self.client: ccxt.Exchange = exchange_cls()
+        self.client: ccxt.Exchange = exchange_cls(**client_kwargs)
         self.poll_interval = poll_interval
         self._history_cache: pd.DataFrame | None = None
 

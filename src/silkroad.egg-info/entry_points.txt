@@ -1,0 +1,2 @@
+[console_scripts]
+silkroad = silkroad.cli.main:app
