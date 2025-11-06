@@ -26,7 +26,7 @@ SilkRoad is a modular algorithmic trading framework built to look great on a ré
    ```bash
    python3 -m venv .venv
    source .venv/bin/activate
-   pip install -e '.[dev]'
+   pip install -e '.[dev,ui]'
    ```
 2. **Create a working config**:
    ```bash
@@ -43,7 +43,13 @@ SilkRoad is a modular algorithmic trading framework built to look great on a ré
    silkroad --config configs/local.yml live
    ```
    Signals are generated from CCXT snapshots, orders are simulated, and fills are logged to the analytics store.
-5. **(Optional) IBKR connectivity**:
+5. **(Optional) Launch the visual dashboard**:
+   ```bash
+   silkroad-ui
+   ```
+   This opens a Streamlit app where you can trigger backtests, inspect metrics, and browse recent trades without leaving the browser.
+
+6. **(Optional) IBKR connectivity**:
    - Ensure Trader Workstation (paper or live) or IB Gateway is running.
    - Set `execution.name: ibkr` and provide `client_id`, `host`, `port`, etc. inside `execution.parameters`.
    - Begin in IBKR’s paper account; confirm risk limits before switching live.
@@ -61,6 +67,7 @@ Key sections in a YAML config:
 ## Analytics & Tooling
 - Trades and performance metrics are logged via `src/silkroad/analytics/logger.py` to a SQLite database (`analytics/silkroad.db` by default).
 - Explore results with your favorite tools (DBeaver, Datasette, pandas) or plug the DB into dashboards.
+- Launch the Streamlit dashboard (`silkroad-ui`) to visualize price history, equity curves, and recent trades.
 - Extend `AnalyticsStore` to pipe metrics into DuckDB, Postgres, or cloud warehouses as your needs grow.
 
 ## Testing & Quality Gates

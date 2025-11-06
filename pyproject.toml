@@ -32,6 +32,7 @@ dependencies = [
 
 [project.scripts]
 silkroad = "silkroad.cli.main:app"
+silkroad-ui = "silkroad.ui.launcher:main"
 
 [project.optional-dependencies]
 dev = [
@@ -39,6 +40,9 @@ dev = [
     "ruff>=0.4",
     "mypy>=1.10",
     "python-dotenv>=1.0",
+]
+ui = [
+    "streamlit>=1.40",
 ]
 
 [project.urls]
