@@ -1,2 +1,3 @@
 [console_scripts]
 silkroad = silkroad.cli.main:app
+silkroad-ui = silkroad.ui.launcher:main

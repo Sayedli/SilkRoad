@@ -1,7 +1,7 @@
 environment: development
 data:
-  source: ccxt:binance
-  symbol: BTC/USDT
+  source: ccxt:kraken
+  symbol: BTC/USD
   interval: 1h
   lookback: 200
   poll_interval: 30

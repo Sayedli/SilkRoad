@@ -36,5 +36,8 @@ src/silkroad/strategy/__init__.py
 src/silkroad/strategy/base.py
 src/silkroad/strategy/momentum.py
 src/silkroad/strategy/registry.py
+src/silkroad/ui/__init__.py
+src/silkroad/ui/app.py
+src/silkroad/ui/launcher.py
 tests/test_backtest.py
 tests/test_config.py

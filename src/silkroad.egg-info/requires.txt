@@ -14,3 +14,6 @@ pytest>=8.2
 ruff>=0.4
 mypy>=1.10
 python-dotenv>=1.0
+
+[ui]
+streamlit>=1.40
