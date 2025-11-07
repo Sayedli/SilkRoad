@@ -67,7 +67,7 @@ SilkRoad is a modular algorithmic trading framework built to look great on a ré
    ```bash
    cp configs/example.paper.yml configs/local.yml
    ```
-   Edit `configs/local.yml` to adjust symbols, strategy parameters, or swap `execution.name` to `ibkr` once you are ready.
+   Edit `configs/local.yml` to adjust symbols, strategy parameters, or swap `execution.name` to `ibkr` once you are ready. If your region blocks certain exchanges (e.g., Binance), choose another CCXT venue such as `ccxt:kraken` with `BTC/USD`, or use the `static` feed for offline experiments.
 3. **Run a backtest**:
    ```bash
    silkroad --config configs/local.yml backtest
