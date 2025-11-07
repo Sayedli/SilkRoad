@@ -64,7 +64,8 @@ def _parse_config_text(raw: str) -> dict[str, Any]:
 
 
 def _gv_label(text: str) -> str:
-    return text.replace('"', r"\"")
+    safe = text.replace("\\", "\\\\")
+    return safe.replace('"', '\\"')
 
 
 def _build_bot_flow_graph(config: dict[str, Any], config_path: Path) -> str:
