@@ -1,11 +1,17 @@
 from __future__ import annotations
 
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
 
 import pandas as pd
 import streamlit as st
 import yaml
+
+try:
+    import altair as alt
+except Exception:  # pragma: no cover - optional dependency
+    alt = None
 
 from silkroad.analytics.logger import AnalyticsStore
 from silkroad.app import SilkRoadApp
@@ -51,6 +57,182 @@ def _load_config_preview(path: Path) -> str:
         return path.read_text(encoding="utf-8")
     except Exception:
         return ""
+
+
+def _apply_robinhood_theme() -> None:
+    st.markdown(
+        """
+        <style>
+            [data-testid="stAppViewContainer"] {
+                background: #05090f;
+                color: #f2f5f7;
+                font-family: "Inter", "SF Pro Display", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+            }
+            [data-testid="stSidebar"] {
+                background: #0b1117;
+                border-right: 1px solid #141b24;
+            }
+            .stButton>button {
+                background: linear-gradient(120deg, #00e676, #00c853);
+                color: #030507;
+                font-weight: 600;
+                border: none;
+                border-radius: 999px;
+                padding: 0.55rem 1.5rem;
+            }
+            .stButton>button:hover {
+                box-shadow: 0 0 20px rgba(0, 230, 118, 0.35);
+            }
+            .sr-card {
+                background: #0d151f;
+                border-radius: 18px;
+                padding: 1rem 1.2rem;
+                border: 1px solid rgba(255, 255, 255, 0.05);
+                box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.02);
+                min-height: 120px;
+            }
+            .sr-card--hero {
+                background: linear-gradient(145deg, rgba(0, 200, 120, 0.15), rgba(0, 200, 120, 0.03));
+            }
+            .sr-card__label {
+                color: #8a97a6;
+                font-size: 0.85rem;
+                text-transform: uppercase;
+                letter-spacing: 0.08em;
+                margin-bottom: 0.45rem;
+            }
+            .sr-card__value {
+                font-size: 1.8rem;
+                font-weight: 600;
+                color: #f4fbff;
+            }
+            .sr-card__subtext {
+                color: #7ed1a1;
+                font-size: 0.95rem;
+            }
+            .sr-status {
+                background: rgba(126, 209, 161, 0.1);
+                border-radius: 12px;
+                padding: 0.75rem 1rem;
+                border: 1px solid rgba(0, 230, 118, 0.2);
+            }
+            .sr-status__label {
+                font-size: 0.9rem;
+                color: #9fb2c4;
+                margin-bottom: 0.25rem;
+                display: block;
+            }
+            .sr-status__value {
+                font-weight: 600;
+                color: #e9f5ee;
+            }
+            .sr-activity {
+                border-left: 2px solid rgba(0, 230, 118, 0.4);
+                padding-left: 0.9rem;
+                margin-bottom: 1rem;
+            }
+            .sr-activity__time {
+                font-size: 0.8rem;
+                color: #7c8ba1;
+            }
+            .sr-activity__title {
+                font-weight: 600;
+                color: #f4fbff;
+            }
+            .sr-activity__body {
+                color: #9fb2c4;
+                font-size: 0.9rem;
+            }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def _format_currency(value: float) -> str:
+    return f"${value:,.2f}"
+
+
+def _format_percent(value: float) -> str:
+    return f"{value:.2%}"
+
+
+def _metric_card(column, label: str, value: str, subtext: str = "") -> None:
+    column.markdown(
+        f"""
+        <div class="sr-card sr-card--hero">
+            <div class="sr-card__label">{label}</div>
+            <div class="sr-card__value">{value}</div>
+            <div class="sr-card__subtext">{subtext}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def _status_card(column, label: str, value: str, detail: str = "") -> None:
+    column.markdown(
+        f"""
+        <div class="sr-card sr-status">
+            <span class="sr-status__label">{label}</span>
+            <div class="sr-status__value">{value}</div>
+            <div class="sr-card__subtext">{detail}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def _build_altair_chart(series: pd.Series, value_label: str, color: str) -> Optional["alt.Chart"]:
+    if alt is None or series is None or series.empty:
+        return None
+    df = series.to_frame(name=value_label).reset_index()
+    df.rename(columns={"index": "timestamp"}, inplace=True)
+    if pd.api.types.is_datetime64_any_dtype(df["timestamp"]):
+        df["timestamp"] = df["timestamp"].dt.tz_localize(None)
+    return (
+        alt.Chart(df)
+        .mark_line(color=color, strokeWidth=2)
+        .encode(
+            x=alt.X("timestamp:T", title=""),
+            y=alt.Y(f"{value_label}:Q", title=value_label.replace("_", " ").title()),
+            tooltip=["timestamp:T", alt.Tooltip(f"{value_label}:Q", format=".2f")],
+        )
+        .properties(height=250)
+        .interactive()
+    )
+
+
+def _build_activity_feed(
+    trades_df: Optional[pd.DataFrame], metrics_df: Optional[pd.DataFrame]
+) -> list[dict[str, Any]]:
+    feed: list[dict[str, Any]] = []
+    if trades_df is not None and not trades_df.empty:
+        subset = trades_df.head(5)
+        for _, trade in subset.iterrows():
+            ts = trade["timestamp"]
+            ts_local = ts.tz_localize(None) if hasattr(ts, "tz_localize") else ts
+            feed.append(
+                {
+                    "timestamp": ts_local,
+                    "title": f"{trade['side'].upper()} {trade['symbol']}",
+                    "body": f"{trade['quantity']} @ {_format_currency(trade['price'])}",
+                }
+            )
+    if metrics_df is not None and not metrics_df.empty:
+        subset = metrics_df.head(5)
+        for _, metric in subset.iterrows():
+            ts = metric["timestamp"]
+            ts_local = ts.tz_localize(None) if hasattr(ts, "tz_localize") else ts
+            feed.append(
+                {
+                    "timestamp": ts_local,
+                    "title": f"Metric: {metric['metric']}",
+                    "body": f"{metric['value']}",
+                }
+            )
+    feed.sort(key=lambda item: item["timestamp"], reverse=True)
+    return feed[:6]
 
 
 def _parse_config_text(raw: str) -> dict[str, Any]:
