@@ -319,6 +319,7 @@ def main() -> None:
     st.set_page_config(page_title="SilkRoad Dashboard", layout="wide")
     st.title("SilkRoad Trading Console")
     st.caption("Backtest strategies, inspect analytics, and iterate on configs from a friendly UI.")
+    _apply_robinhood_theme()
 
     default_config = "configs/example.paper.yml"
     config_path_input = st.sidebar.text_input("Config path", value=default_config)
@@ -367,17 +368,17 @@ def main() -> None:
             st.info("Select a valid config file to preview its contents.")
     config_data = _parse_config_text(preview) if preview else {}
 
-    st.markdown("## How the Bot Works")
+    st.markdown("## Bot Blueprint")
     if config_data:
-        st.caption("This summary is generated from the selected config to show the end-to-end pipeline.")
-        pipeline_cols = st.columns(3)
+        st.caption("Live summary of how this configuration wires market data through the bot.")
+        data_col, execution_col, telemetry_col = st.columns(3)
 
         data_cfg = config_data.get("data", {})
         strategy_cfg = config_data.get("strategy", {})
         execution_cfg = config_data.get("execution", {})
         risk_cfg = config_data.get("risk", {})
         analytics_cfg = config_data.get("analytics", {})
-        monitoring_cfg = config_data.get("monitoring", {})
+        monitoring_cfg = config_data.get("monitoring", {}) or {}
 
         data_desc = (
             f"{data_cfg.get('symbol', 'n/a')} @ {data_cfg.get('interval', 'n/a')} via {data_cfg.get('source', 'n/a')}"
@@ -412,33 +413,47 @@ def main() -> None:
         analytics_db = analytics_cfg.get("database", "n/a")
 
         monitoring_enabled = monitoring_cfg.get("enabled", False)
-        monitoring_channels = ", ".join(monitoring_cfg.get("channels", {}).keys()) or "none"
+        monitoring_channels = ", ".join((monitoring_cfg.get("channels") or {}).keys()) or "none"
 
-        with pipeline_cols[0]:
-            st.markdown("**Data Feed**")
-            st.write(data_desc)
-            if data_meta_str:
-                st.caption(data_meta_str)
-            st.markdown("**Strategy**")
-            st.write(strategy_cfg.get("name", "n/a"))
-            st.caption(strategy_meta)
+        _status_card(
+            data_col,
+            "Data Feed",
+            data_desc,
+            data_meta_str or "Awaiting candles.",
+        )
+        _status_card(
+            data_col,
+            "Strategy",
+            strategy_cfg.get("name", "n/a"),
+            strategy_meta,
+        )
 
-        with pipeline_cols[1]:
-            st.markdown("**Execution Engine**")
-            st.write(execution_cfg.get("name", "n/a"))
-            st.caption(exec_meta)
-            st.markdown("**Risk Controls**")
-            st.write(risk_meta)
-            st.caption("Limits applied before orders leave the engine.")
+        _status_card(
+            execution_col,
+            "Execution Engine",
+            execution_cfg.get("name", "n/a"),
+            exec_meta,
+        )
+        _status_card(
+            execution_col,
+            "Risk Controls",
+            risk_meta,
+            "Limits enforced before orders route.",
+        )
 
-        with pipeline_cols[2]:
-            st.markdown("**Analytics & Monitoring**")
-            st.write(f"{analytics_desc} · {analytics_backend}")
-            if analytics_enabled:
-                st.caption(f"DB: {analytics_db}")
-            st.markdown("**Monitoring Channels**")
-            enabled_text = "Enabled" if monitoring_enabled else "Disabled"
-            st.write(f"{enabled_text} ({monitoring_channels})")
+        _status_card(
+            telemetry_col,
+            "Analytics",
+            f"{analytics_desc} · {analytics_backend}",
+            f"DB: {analytics_db}" if analytics_enabled else "Off",
+        )
+        enabled_text = "Enabled" if monitoring_enabled else "Disabled"
+        _status_card(
+            telemetry_col,
+            "Monitoring",
+            f"{enabled_text}",
+            f"Channels: {monitoring_channels}",
+        )
 
         st.markdown("### Bot Flow")
         st.graphviz_chart(_build_bot_flow_graph(config_data, config_path))
@@ -448,12 +463,21 @@ def main() -> None:
     if "last_result" in st.session_state:
         result: BacktestResult = st.session_state["last_result"]
         st.markdown("## Backtest Results")
-        metrics_cols = st.columns(4)
-        metrics_cols[0].metric("Ending Value", f"${result.ending_value:,.2f}")
-        metrics_cols[1].metric("Total Return", f"{result.total_return:.2%}")
-        metrics_cols[2].metric("Trades", f"{result.total_trades}")
+        hero_cols = st.columns(4)
+        starting_cash = result.starting_cash
+        pnl = result.ending_value - starting_cash
+        pnl_text = f"{_format_currency(pnl)} vs start"
+        _metric_card(hero_cols[0], "Ending Value", _format_currency(result.ending_value), pnl_text)
+        _metric_card(
+            hero_cols[1],
+            "Total Return",
+            _format_percent(result.total_return),
+            "Since run start",
+        )
+        _metric_card(hero_cols[2], "Trades", str(result.total_trades), "Fills executed")
         sharpe_display = f"{result.sharpe_ratio:.2f}" if result.sharpe_ratio is not None else "n/a"
-        metrics_cols[3].metric("Sharpe Ratio", sharpe_display)
+        completed_label = result.completed_at.strftime("%b %d · %H:%M")
+        _metric_card(hero_cols[3], "Sharpe Ratio", sharpe_display, f"Run completed {completed_label}")
 
         extra_metrics = result.extra_metrics or {}
         if extra_metrics:
@@ -465,24 +489,54 @@ def main() -> None:
         with chart_col1:
             st.markdown("### Price History")
             if result.price_series is not None and not result.price_series.empty:
-                price_df = result.price_series.to_frame(name="close")
-                st.line_chart(price_df)
+                chart = _build_altair_chart(result.price_series, "price", "#8fffc2")
+                if chart is not None:
+                    st.altair_chart(chart, use_container_width=True)
+                else:
+                    price_df = result.price_series.to_frame(name="price")
+                    st.line_chart(price_df, use_container_width=True)
             else:
                 st.info("Price series not available for this run.")
         with chart_col2:
             st.markdown("### Equity Curve")
             if result.equity_curve is not None and not result.equity_curve.empty:
-                equity_df = result.equity_curve.to_frame(name="equity")
-                st.line_chart(equity_df)
+                chart = _build_altair_chart(result.equity_curve, "equity", "#66c2ff")
+                if chart is not None:
+                    st.altair_chart(chart, use_container_width=True)
+                else:
+                    equity_df = result.equity_curve.to_frame(name="equity")
+                    st.line_chart(equity_df, use_container_width=True)
             else:
                 st.info("Equity curve not available.")
 
         trades_df = st.session_state.get("last_trades")
         metrics_df = st.session_state.get("last_metrics")
         st.markdown("## Analytics")
-        analytics_tabs = st.tabs(["Recent Trades", "Performance Logs"])
+        analytics_tabs = st.tabs(["Activity Feed", "Recent Trades", "Performance Logs"])
 
         with analytics_tabs[0]:
+            activity = _build_activity_feed(trades_df, metrics_df)
+            if activity:
+                for item in activity:
+                    timestamp = (
+                        item["timestamp"].strftime("%b %d · %H:%M")
+                        if isinstance(item["timestamp"], datetime)
+                        else str(item["timestamp"])
+                    )
+                    st.markdown(
+                        f"""
+                        <div class="sr-activity">
+                            <div class="sr-activity__time">{timestamp}</div>
+                            <div class="sr-activity__title">{item['title']}</div>
+                            <div class="sr-activity__body">{item['body']}</div>
+                        </div>
+                        """,
+                        unsafe_allow_html=True,
+                    )
+            else:
+                st.info("No fills or performance events captured yet.")
+
+        with analytics_tabs[1]:
             if trades_df is not None and not trades_df.empty:
                 trades_display = trades_df.copy()
                 trades_display["timestamp"] = trades_display["timestamp"].dt.tz_localize(None)
@@ -490,7 +544,7 @@ def main() -> None:
             else:
                 st.info("No trades logged yet.")
 
-        with analytics_tabs[1]:
+        with analytics_tabs[2]:
             if metrics_df is not None and not metrics_df.empty:
                 metrics_display = metrics_df.copy()
                 metrics_display["timestamp"] = metrics_display["timestamp"].dt.tz_localize(None)
