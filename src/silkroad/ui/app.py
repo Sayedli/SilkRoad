@@ -5,8 +5,17 @@ from pathlib import Path
 from typing import Any, Optional
 
 import pandas as pd
+import requests
 import streamlit as st
 import yaml
+
+TRENDING_REGIONS = {
+    "US": "United States",
+    "CA": "Canada",
+    "GB": "United Kingdom",
+    "DE": "Germany",
+    "IN": "India",
+}
 
 try:
     import altair as alt
@@ -149,12 +158,49 @@ def _apply_robinhood_theme() -> None:
     )
 
 
+@st.cache_data(ttl=300)
+def _fetch_trending_symbols(region: str, limit: int = 8) -> list[dict[str, Any]]:
+    endpoint = f"https://query1.finance.yahoo.com/v1/finance/trending/{region}"
+    try:
+        response = requests.get(endpoint, params={"count": limit}, timeout=5)
+        response.raise_for_status()
+        payload = response.json()
+    except Exception:
+        return []
+
+    results = payload.get("finance", {}).get("result") or []
+    if not results:
+        return []
+
+    quotes = results[0].get("quotes", [])[:limit]
+    trending: list[dict[str, Any]] = []
+    for quote in quotes:
+        symbol = quote.get("symbol")
+        if not symbol:
+            continue
+        trending.append(
+            {
+                "symbol": symbol,
+                "name": quote.get("shortName") or quote.get("longName") or "Unknown",
+                "change_pct": quote.get("regularMarketChangePercent"),
+            }
+        )
+    return trending
+
+
 def _format_currency(value: float) -> str:
     return f"${value:,.2f}"
 
 
 def _format_percent(value: float) -> str:
     return f"{value:.2%}"
+
+
+def _format_change(value: Optional[float]) -> str:
+    if value is None:
+        return "0.00%"
+    sign = "+" if value >= 0 else ""
+    return f"{sign}{value:.2f}%"
 
 
 def _metric_card(column, label: str, value: str, subtext: str = "") -> None:
@@ -336,6 +382,35 @@ def main() -> None:
 \n- Analytics database location is defined in the config (`analytics.database`).
         """
     )
+    st.sidebar.markdown("### Tracking")
+    st.sidebar.write(
+        "- Price history + equity curve\n"
+        "- Executed trades & fills\n"
+        "- Performance metrics stored in analytics DB"
+    )
+
+    st.sidebar.markdown("### Trending Symbols")
+    region_choice = st.sidebar.selectbox(
+        "Market", list(TRENDING_REGIONS.keys()), format_func=lambda code: TRENDING_REGIONS[code]
+    )
+    trending_symbols = _fetch_trending_symbols(region_choice)
+    if trending_symbols:
+        option_indices = list(range(len(trending_symbols)))
+
+        def _format_option(idx: int) -> str:
+            item = trending_symbols[idx]
+            change_txt = _format_change(item.get("change_pct"))
+            return f"{item['symbol']} · {item['name']} ({change_txt})"
+
+        selected_idx = st.sidebar.selectbox(
+            "Top movers right now", option_indices, format_func=_format_option
+        )
+        selected = trending_symbols[selected_idx]
+        change_text = _format_change(selected.get("change_pct"))
+        st.sidebar.markdown(f"**Selected:** `{selected['symbol']}` ({change_text})")
+        st.sidebar.caption("Update `data.symbol` in your config to backtest or trade this instrument.")
+    else:
+        st.sidebar.info("Unable to load trending symbols right now.")
 
     if run_backtest_clicked:
         if not config_path.exists():
