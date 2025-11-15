@@ -17,6 +17,28 @@ TRENDING_REGIONS = {
     "IN": "India",
 }
 
+WATCHLISTS = {
+    "US Mega Caps": [
+        {"symbol": "AAPL", "name": "Apple Inc.", "exchange": "NASDAQ", "description": "Consumer hardware + services"},
+        {"symbol": "MSFT", "name": "Microsoft Corp.", "exchange": "NASDAQ", "description": "Cloud + enterprise software"},
+        {"symbol": "GOOGL", "name": "Alphabet Inc.", "exchange": "NASDAQ", "description": "Search + AI advertising"},
+        {"symbol": "AMZN", "name": "Amazon.com Inc.", "exchange": "NASDAQ", "description": "E-commerce + AWS cloud"},
+        {"symbol": "META", "name": "Meta Platforms Inc.", "exchange": "NASDAQ", "description": "Social + VR"},
+    ],
+    "EV & Chips": [
+        {"symbol": "TSLA", "name": "Tesla Inc.", "exchange": "NASDAQ", "description": "EV leader with energy storage"},
+        {"symbol": "NVDA", "name": "NVIDIA Corp.", "exchange": "NASDAQ", "description": "AI & GPU powerhouse"},
+        {"symbol": "AMD", "name": "Advanced Micro Devices", "exchange": "NASDAQ", "description": "CPU + GPU challenger"},
+        {"symbol": "ON", "name": "ON Semiconductor", "exchange": "NASDAQ", "description": "Auto & industrial silicon"},
+    ],
+    "US ETFs": [
+        {"symbol": "SPY", "name": "SPDR S&P 500 ETF", "exchange": "NYSE", "description": "S&P 500 market beta"},
+        {"symbol": "QQQ", "name": "Invesco QQQ Trust", "exchange": "NASDAQ", "description": "Nasdaq-100 growth exposure"},
+        {"symbol": "IWM", "name": "iShares Russell 2000 ETF", "exchange": "NYSE", "description": "US small caps"},
+        {"symbol": "ARKK", "name": "ARK Innovation ETF", "exchange": "NYSE", "description": "Disruptive tech basket"},
+    ],
+}
+
 try:
     import altair as alt
 except Exception:  # pragma: no cover - optional dependency
@@ -201,6 +223,14 @@ def _format_change(value: Optional[float]) -> str:
         return "0.00%"
     sign = "+" if value >= 0 else ""
     return f"{sign}{value:.2f}%"
+
+
+def _set_selected_instrument(symbol: str, name: str, source_hint: str = "") -> None:
+    st.session_state["selected_instrument"] = {
+        "symbol": symbol,
+        "name": name,
+        "source_hint": source_hint,
+    }
 
 
 def _metric_card(column, label: str, value: str, subtext: str = "") -> None:
