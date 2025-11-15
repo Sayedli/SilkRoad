@@ -233,6 +233,18 @@ def _set_selected_instrument(symbol: str, name: str, source_hint: str = "") -> N
     }
 
 
+def _render_selected_instrument_notice() -> None:
+    instrument = st.session_state.get("selected_instrument")
+    if not instrument:
+        return
+    source_hint = instrument.get("source_hint") or "Update `data.source` to a venue that lists the symbol."
+    st.info(
+        f"Instrument focus: `{instrument['symbol']}` · {instrument['name']}  \n"
+        f"- Update `data.symbol` in your config to `{instrument['symbol']}`  \n"
+        f"- {source_hint}"
+    )
+
+
 def _metric_card(column, label: str, value: str, subtext: str = "") -> None:
     column.markdown(
         f"""
@@ -439,6 +451,11 @@ def main() -> None:
         change_text = _format_change(selected.get("change_pct"))
         st.sidebar.markdown(f"**Selected:** `{selected['symbol']}` ({change_text})")
         st.sidebar.caption("Update `data.symbol` in your config to backtest or trade this instrument.")
+        _set_selected_instrument(
+            selected["symbol"],
+            selected["name"],
+            "Pick a data feed that supports equities (e.g., polygon, alpaca, or your custom adapter).",
+        )
     else:
         st.sidebar.info("Unable to load trending symbols right now.")
 
