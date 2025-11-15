@@ -459,6 +459,31 @@ def main() -> None:
     else:
         st.sidebar.info("Unable to load trending symbols right now.")
 
+    st.sidebar.markdown("### Curated Watchlists")
+    watchlist_names = list(WATCHLISTS.keys())
+    selected_watchlist = st.sidebar.selectbox("Collection", watchlist_names, key="watchlist_collection")
+    collection = WATCHLISTS[selected_watchlist]
+    collection_indices = list(range(len(collection)))
+
+    def _format_watchlist_option(idx: int) -> str:
+        item = collection[idx]
+        return f"{item['symbol']} · {item['name']} ({item['exchange']})"
+
+    selected_company_idx = st.sidebar.selectbox(
+        "Company", collection_indices, format_func=_format_watchlist_option, key="watchlist_company"
+    )
+    selected_company = collection[selected_company_idx]
+    st.sidebar.write(selected_company["description"])
+    st.sidebar.caption(
+        "Click the config file and change `data.symbol` to this ticker. Choose a data feed that "
+        "supports equities (e.g., polygon, alpaca, or a custom static feed)."
+    )
+    _set_selected_instrument(
+        selected_company["symbol"],
+        selected_company["name"],
+        f"Exchange: {selected_company['exchange']}. Choose a data feed that supports this venue.",
+    )
+
     if run_backtest_clicked:
         if not config_path.exists():
             st.error(f"Config file not found: {config_path}")
@@ -489,6 +514,12 @@ def main() -> None:
         else:
             st.info("Select a valid config file to preview its contents.")
     config_data = _parse_config_text(preview) if preview else {}
+
+    st.markdown("## Instrument Focus")
+    if st.session_state.get("selected_instrument"):
+        _render_selected_instrument_notice()
+    else:
+        st.info("Pick a trending symbol or watchlist company in the sidebar to populate `data.symbol`.")
 
     st.markdown("## Bot Blueprint")
     if config_data:
