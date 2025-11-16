@@ -247,6 +247,9 @@ def _render_selected_instrument_notice() -> None:
 
 def _render_stock_explorer(trending: list[dict[str, Any]]) -> None:
     st.markdown("## Stock Explorer")
+    focus = st.session_state.get("selected_instrument")
+    if focus:
+        st.success(f"Current focus: {focus['symbol']} · {focus['name']}")
     st.caption(
         "Browse live trending tickers or curated watchlists. Buttons below set the instrument focus."
     )
@@ -499,12 +502,14 @@ def main() -> None:
         selected = trending_symbols[selected_idx]
         change_text = _format_change(selected.get("change_pct"))
         st.sidebar.markdown(f"**Selected:** `{selected['symbol']}` ({change_text})")
-        st.sidebar.caption("Update `data.symbol` in your config to backtest or trade this instrument.")
-        _set_selected_instrument(
-            selected["symbol"],
-            selected["name"],
-            "Pick a data feed that supports equities (e.g., polygon, alpaca, or your custom adapter).",
-        )
+        if st.sidebar.button("Focus selected trending symbol", key="sidebar_focus_trending"):
+            _set_selected_instrument(
+                selected["symbol"],
+                selected["name"],
+                "Pick a data feed that supports equities (e.g., polygon, alpaca, or your custom adapter).",
+            )
+            st.sidebar.success(f"{selected['symbol']} ready—update `data.symbol` to this ticker.")
+        st.sidebar.caption("Click the button above to copy this symbol into the Instrument Focus section.")
     else:
         st.sidebar.info("Unable to load trending symbols right now.")
 
@@ -523,14 +528,15 @@ def main() -> None:
     )
     selected_company = collection[selected_company_idx]
     st.sidebar.write(selected_company["description"])
+    if st.sidebar.button("Focus selected company", key="sidebar_focus_watchlist"):
+        _set_selected_instrument(
+            selected_company["symbol"],
+            selected_company["name"],
+            f"Exchange: {selected_company['exchange']}. Choose a data feed that supports this venue.",
+        )
+        st.sidebar.success(f"{selected_company['symbol']} ready—update `data.symbol` accordingly.")
     st.sidebar.caption(
-        "Click the config file and change `data.symbol` to this ticker. Choose a data feed that "
-        "supports equities (e.g., polygon, alpaca, or a custom static feed)."
-    )
-    _set_selected_instrument(
-        selected_company["symbol"],
-        selected_company["name"],
-        f"Exchange: {selected_company['exchange']}. Choose a data feed that supports this venue.",
+        "After focusing a ticker, edit `data.symbol` in your config and select a compatible data feed (polygon, alpaca, etc.)."
     )
 
     if run_backtest_clicked:
