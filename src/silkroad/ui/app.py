@@ -245,6 +245,54 @@ def _render_selected_instrument_notice() -> None:
     )
 
 
+def _render_stock_explorer(trending: list[dict[str, Any]]) -> None:
+    st.markdown("## Stock Explorer")
+    st.caption(
+        "Browse live trending tickers or curated watchlists. Buttons below set the instrument focus."
+    )
+    explorer_cols = st.columns(2)
+
+    with explorer_cols[0]:
+        st.markdown("### Trending Right Now")
+        if trending:
+            for item in trending:
+                symbol = item["symbol"]
+                change = _format_change(item.get("change_pct"))
+                st.markdown(f"**{symbol}** · {item['name']} — {change}")
+                if st.button(f"Focus {symbol}", key=f"trend-btn-{symbol}"):
+                    _set_selected_instrument(
+                        symbol,
+                        item["name"],
+                        "Use an equities data feed (polygon/alpaca/custom) before running.",
+                    )
+                    st.success(f"{symbol} set as instrument focus.")
+        else:
+            st.info("Trending feed unavailable; try the watchlists or refresh the page.")
+
+    with explorer_cols[1]:
+        st.markdown("### Curated Watchlists")
+        watchlist_name = st.selectbox(
+            "Collection", list(WATCHLISTS.keys()), key="explorer_watchlist_choice"
+        )
+        watch_items = WATCHLISTS[watchlist_name]
+        for company in watch_items:
+            description = company.get("description", "")
+            st.markdown(
+                f"**{company['symbol']}** · {company['name']} ({company.get('exchange', 'n/a')})  \n"
+                f"{description}"
+            )
+            if st.button(
+                f"Focus {company['symbol']}", key=f"watchlist-btn-{watchlist_name}-{company['symbol']}"
+            ):
+                _set_selected_instrument(
+                    company["symbol"],
+                    company["name"],
+                    f"Exchange: {company.get('exchange', 'n/a')}. Ensure your data feed supports it.",
+                )
+                st.success(f"{company['symbol']} set as instrument focus.")
+        st.caption("Focused tickers update the instructions below the config preview.")
+
+
 def _metric_card(column, label: str, value: str, subtext: str = "") -> None:
     column.markdown(
         f"""
@@ -436,6 +484,7 @@ def main() -> None:
         "Market", list(TRENDING_REGIONS.keys()), format_func=lambda code: TRENDING_REGIONS[code]
     )
     trending_symbols = _fetch_trending_symbols(region_choice)
+    stock_explorer_trending = trending_symbols
     if trending_symbols:
         option_indices = list(range(len(trending_symbols)))
 
@@ -520,6 +569,8 @@ def main() -> None:
         _render_selected_instrument_notice()
     else:
         st.info("Pick a trending symbol or watchlist company in the sidebar to populate `data.symbol`.")
+
+    _render_stock_explorer(stock_explorer_trending)
 
     st.markdown("## Bot Blueprint")
     if config_data:
