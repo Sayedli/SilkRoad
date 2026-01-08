@@ -8,6 +8,7 @@ import pandas as pd
 import requests
 import streamlit as st
 import yaml
+from streamlit import components
 
 TRENDING_REGIONS = {
     "US": "United States",
@@ -214,7 +215,9 @@ def _fetch_trending_symbols(region: str, limit: int = 8) -> list[dict[str, Any]]
 def _fetch_quote_snapshot(symbol: str) -> Optional[dict[str, Any]]:
     endpoint = "https://query1.finance.yahoo.com/v7/finance/quote"
     try:
-        response = requests.get(endpoint, params={"symbols": symbol}, timeout=5)
+        response = requests.get(
+            endpoint, params={"symbols": symbol}, headers=_get_request_headers(), timeout=5
+        )
         response.raise_for_status()
         payload = response.json()
     except Exception:
@@ -237,16 +240,21 @@ def _fetch_quote_snapshot(symbol: str) -> Optional[dict[str, Any]]:
 def _fetch_quote_snapshot_fallback(symbol: str) -> Optional[dict[str, Any]]:
     endpoint = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
     try:
-        response = requests.get(endpoint, params={"range": "1d", "interval": "1m"}, timeout=5)
+        response = requests.get(
+            endpoint,
+            params={"range": "1d", "interval": "1m"},
+            headers=_get_request_headers(),
+            timeout=5,
+        )
         response.raise_for_status()
         payload = response.json()
     except Exception:
-        return None
+        return _fetch_quote_snapshot_stooq(symbol)
     result = (payload.get("chart") or {}).get("result") or []
     if not result:
         return None
     meta = result[0].get("meta") or {}
-    return {
+    yahoo_snapshot = {
         "price": meta.get("regularMarketPrice"),
         "change": meta.get("regularMarketPrice") - meta.get("previousClose", 0.0)
         if meta.get("regularMarketPrice") is not None and meta.get("previousClose") is not None
@@ -263,17 +271,68 @@ def _fetch_quote_snapshot_fallback(symbol: str) -> Optional[dict[str, Any]]:
         "currency": meta.get("currency"),
         "as_of": meta.get("regularMarketTime"),
     }
+    if yahoo_snapshot["price"] is None:
+        return _fetch_quote_snapshot_stooq(symbol)
+    return yahoo_snapshot
+
+
+def _fetch_quote_snapshot_stooq(symbol: str) -> Optional[dict[str, Any]]:
+    stooq_symbol = _normalize_stooq_symbol(symbol)
+    if not stooq_symbol:
+        return None
+    endpoint = "https://stooq.com/q/l/"
+    try:
+        response = requests.get(
+            endpoint,
+            params={"s": stooq_symbol, "f": "sd2t2ohlcv", "h": "1", "e": "csv"},
+            headers=_get_request_headers(),
+            timeout=5,
+        )
+        response.raise_for_status()
+    except Exception:
+        return None
+    lines = response.text.strip().splitlines()
+    if len(lines) < 2:
+        return None
+    header = [item.strip().lower() for item in lines[0].split(",")]
+    values = [item.strip() for item in lines[1].split(",")]
+    if len(header) != len(values):
+        return None
+    row = dict(zip(header, values))
+    try:
+        price = float(row.get("close", ""))
+    except Exception:
+        return None
+    try:
+        prev_close = float(row.get("open", "")) if row.get("open") else None
+    except Exception:
+        prev_close = None
+    change = price - prev_close if prev_close is not None else None
+    change_percent = (change / prev_close * 100.0) if change is not None and prev_close else None
+    return {
+        "price": price,
+        "change": change,
+        "change_percent": change_percent,
+        "exchange": "Stooq",
+        "currency": "USD",
+        "as_of": None,
+    }
 
 
 @st.cache_data(ttl=60)
 def _fetch_intraday_series(symbol: str) -> Optional[pd.Series]:
     endpoint = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
     try:
-        response = requests.get(endpoint, params={"range": "1d", "interval": "5m"}, timeout=5)
+        response = requests.get(
+            endpoint,
+            params={"range": "1d", "interval": "5m"},
+            headers=_get_request_headers(),
+            timeout=5,
+        )
         response.raise_for_status()
         payload = response.json()
     except Exception:
-        return None
+        return _fetch_intraday_series_stooq(symbol)
     result = (payload.get("chart") or {}).get("result") or []
     if not result:
         return None
@@ -283,9 +342,102 @@ def _fetch_intraday_series(symbol: str) -> Optional[pd.Series]:
         return None
     closes = indicators[0].get("close") or []
     if not closes:
-        return None
+        return _fetch_intraday_series_stooq(symbol)
     series = pd.Series(closes, index=pd.to_datetime(timestamps, unit="s"), name="price").dropna()
     return series if not series.empty else None
+
+
+def _fetch_intraday_series_stooq(symbol: str) -> Optional[pd.Series]:
+    stooq_symbol = _normalize_stooq_symbol(symbol)
+    if not stooq_symbol:
+        return None
+    endpoint = "https://stooq.com/q/d/l/"
+    try:
+        response = requests.get(
+            endpoint,
+            params={"s": stooq_symbol, "i": "5"},
+            headers=_get_request_headers(),
+            timeout=5,
+        )
+        response.raise_for_status()
+    except Exception:
+        return None
+    lines = response.text.strip().splitlines()
+    if len(lines) < 2:
+        return None
+    header = [item.strip().lower() for item in lines[0].split(",")]
+    if "close" not in header or "date" not in header:
+        return None
+    close_idx = header.index("close")
+    date_idx = header.index("date")
+    prices = []
+    times = []
+    for row in lines[1:]:
+        parts = row.split(",")
+        if len(parts) <= max(close_idx, date_idx):
+            continue
+        try:
+            price = float(parts[close_idx])
+        except Exception:
+            continue
+        try:
+            ts = pd.to_datetime(parts[date_idx])
+        except Exception:
+            continue
+        prices.append(price)
+        times.append(ts)
+    if not prices:
+        return None
+    series = pd.Series(prices, index=pd.to_datetime(times), name="price").dropna()
+    return series if not series.empty else None
+
+
+def _normalize_stooq_symbol(symbol: str) -> Optional[str]:
+    if not symbol:
+        return None
+    cleaned = symbol.strip().lower()
+    if "/" in cleaned:
+        return None
+    if "." in cleaned:
+        return cleaned
+    if cleaned.isalpha():
+        return f"{cleaned}.us"
+    return None
+
+
+def _get_request_headers() -> dict[str, str]:
+    return {
+        "User-Agent": (
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/122.0.0.0 Safari/537.36"
+        ),
+        "Accept": "application/json,text/csv,text/plain,*/*",
+    }
+
+
+def _get_query_params() -> dict[str, list[str]]:
+    getter = getattr(st, "query_params", None)
+    if getter is not None and hasattr(getter, "to_dict"):
+        return getter.to_dict()
+    legacy_getter = getattr(st, "experimental_get_query_params", None)
+    if callable(legacy_getter):
+        return legacy_getter()
+    return {}
+
+
+def _infer_region_from_coords(lat: float, lon: float) -> Optional[str]:
+    if 24 <= lat <= 49 and -125 <= lon <= -66:
+        return "US"
+    if 42 <= lat <= 83 and -141 <= lon <= -52:
+        return "CA"
+    if 49 <= lat <= 61 and -8 <= lon <= 2:
+        return "GB"
+    if 47 <= lat <= 55 and 5 <= lon <= 15:
+        return "DE"
+    if 6 <= lat <= 36 and 68 <= lon <= 97:
+        return "IN"
+    return None
 
 
 def _format_currency(value: float) -> str:
