@@ -257,6 +257,16 @@ def _set_selected_instrument(symbol: str, name: str, source_hint: str = "") -> N
     }
 
 
+def _rerun_ui() -> None:
+    rerun = getattr(st, "rerun", None)
+    if callable(rerun):
+        rerun()
+        return
+    legacy_rerun = getattr(st, "experimental_rerun", None)
+    if callable(legacy_rerun):
+        legacy_rerun()
+
+
 def _render_selected_instrument_notice() -> None:
     instrument = st.session_state.get("selected_instrument")
     if not instrument:
@@ -314,7 +324,7 @@ def _render_stock_explorer(trending: list[dict[str, Any]]) -> None:
                         "Use an equities data feed (polygon/alpaca/custom) before running.",
                     )
                     st.success(f"{symbol} set as instrument focus.")
-                    st.experimental_rerun()
+                    _rerun_ui()
         else:
             st.info("Trending feed unavailable; try the watchlists or refresh the page.")
 
@@ -339,7 +349,7 @@ def _render_stock_explorer(trending: list[dict[str, Any]]) -> None:
                     f"Exchange: {company.get('exchange', 'n/a')}. Ensure your data feed supports it.",
                 )
                 st.success(f"{company['symbol']} set as instrument focus.")
-                st.experimental_rerun()
+                _rerun_ui()
         st.caption("Focused tickers update the instructions below the config preview.")
 
 
@@ -556,7 +566,7 @@ def main() -> None:
                 "Pick a data feed that supports equities (e.g., polygon, alpaca, or your custom adapter).",
             )
             st.sidebar.success(f"{selected['symbol']} ready—update `data.symbol` to this ticker.")
-            st.experimental_rerun()
+            _rerun_ui()
         st.sidebar.caption("Use this to fill your pick below.")
     else:
         st.sidebar.info("Trending list unavailable right now.")
@@ -583,7 +593,7 @@ def main() -> None:
             f"Exchange: {selected_company['exchange']}. Choose a data feed that supports this venue.",
         )
         st.sidebar.success(f"{selected_company['symbol']} ready—update `data.symbol` accordingly.")
-        st.experimental_rerun()
+        _rerun_ui()
     st.sidebar.caption("Pick a company here, then update it in your config when you are ready.")
 
     if run_backtest_clicked:
