@@ -755,8 +755,48 @@ def main() -> None:
     )
 
     st.sidebar.markdown("### What People Are Watching")
+    st.sidebar.markdown("#### Location")
+    query_params = _get_query_params()
+    lat = query_params.get("lat", [None])[0]
+    lon = query_params.get("lon", [None])[0]
+    if lat and lon:
+        st.sidebar.success(f"Location enabled · {lat}, {lon}")
+    else:
+        if st.sidebar.button("Allow location access"):
+            st.session_state["request_location"] = True
+        if st.session_state.get("request_location"):
+            st.sidebar.info("Waiting for browser permission...")
+            components.v1.html(
+                """
+                <script>
+                (function() {
+                    if (!navigator.geolocation) {
+                        return;
+                    }
+                    navigator.geolocation.getCurrentPosition(function(pos) {
+                        const params = new URLSearchParams(window.parent.location.search);
+                        params.set("lat", pos.coords.latitude.toFixed(4));
+                        params.set("lon", pos.coords.longitude.toFixed(4));
+                        window.parent.history.replaceState({}, "", "?" + params.toString());
+                        window.parent.location.reload();
+                    });
+                })();
+                </script>
+                """,
+                height=0,
+            )
+    st.sidebar.markdown("#### Market")
+    default_region = None
+    if lat and lon:
+        try:
+            default_region = _infer_region_from_coords(float(lat), float(lon))
+        except Exception:
+            default_region = None
     region_choice = st.sidebar.selectbox(
-        "Market", list(TRENDING_REGIONS.keys()), format_func=lambda code: TRENDING_REGIONS[code]
+        "Market",
+        list(TRENDING_REGIONS.keys()),
+        index=(list(TRENDING_REGIONS.keys()).index(default_region) if default_region else 0),
+        format_func=lambda code: TRENDING_REGIONS[code],
     )
     trending_symbols = _fetch_trending_symbols(region_choice)
     stock_explorer_trending = trending_symbols
