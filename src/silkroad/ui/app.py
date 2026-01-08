@@ -210,6 +210,30 @@ def _fetch_trending_symbols(region: str, limit: int = 8) -> list[dict[str, Any]]
     return trending
 
 
+@st.cache_data(ttl=60)
+def _fetch_quote_snapshot(symbol: str) -> Optional[dict[str, Any]]:
+    endpoint = "https://query1.finance.yahoo.com/v7/finance/quote"
+    try:
+        response = requests.get(endpoint, params={"symbols": symbol}, timeout=5)
+        response.raise_for_status()
+        payload = response.json()
+    except Exception:
+        return None
+
+    result = (payload.get("quoteResponse") or {}).get("result") or []
+    if not result:
+        return None
+    quote = result[0]
+    return {
+        "price": quote.get("regularMarketPrice"),
+        "change": quote.get("regularMarketChange"),
+        "change_percent": quote.get("regularMarketChangePercent"),
+        "exchange": quote.get("fullExchangeName"),
+        "currency": quote.get("currency"),
+        "as_of": quote.get("regularMarketTime"),
+    }
+
+
 def _format_currency(value: float) -> str:
     return f"${value:,.2f}"
 
@@ -237,11 +261,32 @@ def _render_selected_instrument_notice() -> None:
     instrument = st.session_state.get("selected_instrument")
     if not instrument:
         return
-    source_hint = instrument.get("source_hint") or "Update `data.source` to a venue that lists the symbol."
-    st.info(
-        f"Instrument focus: `{instrument['symbol']}` · {instrument['name']}  \n"
-        f"- Update `data.symbol` in your config to `{instrument['symbol']}`  \n"
-        f"- {source_hint}"
+    source_hint = instrument.get("source_hint") or "Choose a data feed that lists this ticker (polygon, alpaca, etc.)."
+    quote = _fetch_quote_snapshot(instrument["symbol"])
+    price = quote.get("price") if quote else None
+    change = quote.get("change_percent") if quote else None
+    quote_text = (
+        f"{_format_currency(price)} ({_format_change(change)} intraday)"
+        if price is not None
+        else "Real-time quote unavailable."
+    )
+    st.markdown(
+        f"""
+        <div class="sr-card sr-card--hero">
+            <div class="sr-card__label">Instrument focus</div>
+            <div class="sr-card__value">{instrument['symbol']} · {instrument['name']}</div>
+            <div class="sr-card__subtext">{quote_text}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    st.write(source_hint)
+    st.code(
+        f"""data:
+  source: <your_equities_feed>
+  symbol: "{instrument['symbol']}"
+""",
+        language="yaml",
     )
 
 
@@ -269,6 +314,7 @@ def _render_stock_explorer(trending: list[dict[str, Any]]) -> None:
                         "Use an equities data feed (polygon/alpaca/custom) before running.",
                     )
                     st.success(f"{symbol} set as instrument focus.")
+                    st.experimental_rerun()
         else:
             st.info("Trending feed unavailable; try the watchlists or refresh the page.")
 
@@ -293,6 +339,7 @@ def _render_stock_explorer(trending: list[dict[str, Any]]) -> None:
                     f"Exchange: {company.get('exchange', 'n/a')}. Ensure your data feed supports it.",
                 )
                 st.success(f"{company['symbol']} set as instrument focus.")
+                st.experimental_rerun()
         st.caption("Focused tickers update the instructions below the config preview.")
 
 
@@ -457,32 +504,32 @@ def _run_backtest(config_path: Path) -> tuple[BacktestResult, Optional[pd.DataFr
 def main() -> None:
     st.set_page_config(page_title="SilkRoad Dashboard", layout="wide")
     st.title("SilkRoad Trading Console")
-    st.caption("Backtest strategies, inspect analytics, and iterate on configs from a friendly UI.")
+    st.caption("Pick what to trade, test your idea, and review results in plain language.")
     _apply_robinhood_theme()
 
     default_config = "configs/example.paper.yml"
     config_path_input = st.sidebar.text_input("Config path", value=default_config)
     config_path = Path(config_path_input).expanduser().resolve()
 
-    st.sidebar.markdown("### Actions")
+    st.sidebar.markdown("### Quick Actions")
     run_backtest_clicked = st.sidebar.button("Run Backtest", type="primary")
     st.sidebar.markdown("---")
     st.sidebar.markdown(
         """
-        **Tips**
-\n- Update YAML configs directly in your editor.
-\n- Copy configs to experiment: `cp configs/example.paper.yml configs/my_test.yml`.
-\n- Analytics database location is defined in the config (`analytics.database`).
+        **Tips (plain-English)**
+\n- Think of the config as your "bot recipe."
+\n- Duplicate the sample recipe to try changes: `cp configs/example.paper.yml configs/my_test.yml`.
+\n- Your trade history and stats are saved automatically.
         """
     )
-    st.sidebar.markdown("### Tracking")
+    st.sidebar.markdown("### What This Tracks")
     st.sidebar.write(
-        "- Price history + equity curve\n"
-        "- Executed trades & fills\n"
-        "- Performance metrics stored in analytics DB"
+        "- Price chart + account growth\n"
+        "- Trades the bot would make\n"
+        "- Performance stats (wins, losses, risk)"
     )
 
-    st.sidebar.markdown("### Trending Symbols")
+    st.sidebar.markdown("### What People Are Watching")
     region_choice = st.sidebar.selectbox(
         "Market", list(TRENDING_REGIONS.keys()), format_func=lambda code: TRENDING_REGIONS[code]
     )
@@ -509,11 +556,12 @@ def main() -> None:
                 "Pick a data feed that supports equities (e.g., polygon, alpaca, or your custom adapter).",
             )
             st.sidebar.success(f"{selected['symbol']} ready—update `data.symbol` to this ticker.")
-        st.sidebar.caption("Click the button above to copy this symbol into the Instrument Focus section.")
+            st.experimental_rerun()
+        st.sidebar.caption("Use this to fill your pick below.")
     else:
-        st.sidebar.info("Unable to load trending symbols right now.")
+        st.sidebar.info("Trending list unavailable right now.")
 
-    st.sidebar.markdown("### Curated Watchlists")
+    st.sidebar.markdown("### Starter Watchlists")
     watchlist_names = list(WATCHLISTS.keys())
     selected_watchlist = st.sidebar.selectbox("Collection", watchlist_names, key="watchlist_collection")
     collection = WATCHLISTS[selected_watchlist]
@@ -535,9 +583,8 @@ def main() -> None:
             f"Exchange: {selected_company['exchange']}. Choose a data feed that supports this venue.",
         )
         st.sidebar.success(f"{selected_company['symbol']} ready—update `data.symbol` accordingly.")
-    st.sidebar.caption(
-        "After focusing a ticker, edit `data.symbol` in your config and select a compatible data feed (polygon, alpaca, etc.)."
-    )
+        st.experimental_rerun()
+    st.sidebar.caption("Pick a company here, then update it in your config when you are ready.")
 
     if run_backtest_clicked:
         if not config_path.exists():
@@ -556,31 +603,31 @@ def main() -> None:
 
     config_col, preview_col = st.columns([1, 2])
     with config_col:
-        st.subheader("Configuration")
+        st.subheader("Your Bot Recipe")
         if config_path.exists():
-            st.write(f"Using config: `{config_path}`")
+            st.write(f"Using recipe: `{config_path}`")
         else:
-            st.warning("Provided config path does not exist.")
+            st.warning("Recipe file not found.")
     with preview_col:
-        st.subheader("YAML Preview")
+        st.subheader("Recipe Preview")
         preview = _load_config_preview(config_path)
         if preview:
             st.code(preview, language="yaml")
         else:
-            st.info("Select a valid config file to preview its contents.")
+            st.info("Pick a valid recipe file to preview its contents.")
     config_data = _parse_config_text(preview) if preview else {}
 
-    st.markdown("## Instrument Focus")
+    st.markdown("## What This Bot Trades")
     if st.session_state.get("selected_instrument"):
         _render_selected_instrument_notice()
     else:
-        st.info("Pick a trending symbol or watchlist company in the sidebar to populate `data.symbol`.")
+        st.info("Pick a company on the left to fill in your trade symbol.")
 
     _render_stock_explorer(stock_explorer_trending)
 
-    st.markdown("## Bot Blueprint")
+    st.markdown("## How the Bot Works (Simple View)")
     if config_data:
-        st.caption("Live summary of how this configuration wires market data through the bot.")
+        st.caption("A quick summary of your setup: data → strategy → simulated trading.")
         data_col, execution_col, telemetry_col = st.columns(3)
 
         data_cfg = config_data.get("data", {})
@@ -627,52 +674,52 @@ def main() -> None:
 
         _status_card(
             data_col,
-            "Data Feed",
+            "Market Data",
             data_desc,
-            data_meta_str or "Awaiting candles.",
+            data_meta_str or "Waiting for price updates.",
         )
         _status_card(
             data_col,
-            "Strategy",
+            "Trade Style",
             strategy_cfg.get("name", "n/a"),
             strategy_meta,
         )
 
         _status_card(
             execution_col,
-            "Execution Engine",
+            "Trading Mode",
             execution_cfg.get("name", "n/a"),
             exec_meta,
         )
         _status_card(
             execution_col,
-            "Risk Controls",
+            "Safety Rules",
             risk_meta,
-            "Limits enforced before orders route.",
+            "Limits applied before any trade.",
         )
 
         _status_card(
             telemetry_col,
-            "Analytics",
+            "Stats & History",
             f"{analytics_desc} · {analytics_backend}",
             f"DB: {analytics_db}" if analytics_enabled else "Off",
         )
         enabled_text = "Enabled" if monitoring_enabled else "Disabled"
         _status_card(
             telemetry_col,
-            "Monitoring",
+            "Alerts",
             f"{enabled_text}",
             f"Channels: {monitoring_channels}",
         )
 
-        st.markdown("### Bot Flow")
+        st.markdown("### Data → Strategy → Trades")
         st.graphviz_chart(_build_bot_flow_graph(config_data, config_path))
     else:
-        st.info("Provide a valid config to see how SilkRoad wires data → strategy → execution.")
+        st.info("Add a valid recipe file to see your bot flow.")
 
     if "last_result" in st.session_state:
         result: BacktestResult = st.session_state["last_result"]
-        st.markdown("## Backtest Results")
+        st.markdown("## Test Results")
         hero_cols = st.columns(4)
         starting_cash = result.starting_cash
         pnl = result.ending_value - starting_cash
@@ -680,14 +727,14 @@ def main() -> None:
         _metric_card(hero_cols[0], "Ending Value", _format_currency(result.ending_value), pnl_text)
         _metric_card(
             hero_cols[1],
-            "Total Return",
+            "Overall Gain",
             _format_percent(result.total_return),
             "Since run start",
         )
         _metric_card(hero_cols[2], "Trades", str(result.total_trades), "Fills executed")
         sharpe_display = f"{result.sharpe_ratio:.2f}" if result.sharpe_ratio is not None else "n/a"
         completed_label = result.completed_at.strftime("%b %d · %H:%M")
-        _metric_card(hero_cols[3], "Sharpe Ratio", sharpe_display, f"Run completed {completed_label}")
+        _metric_card(hero_cols[3], "Risk-Adjusted", sharpe_display, f"Run completed {completed_label}")
 
         extra_metrics = result.extra_metrics or {}
         if extra_metrics:
@@ -721,8 +768,8 @@ def main() -> None:
 
         trades_df = st.session_state.get("last_trades")
         metrics_df = st.session_state.get("last_metrics")
-        st.markdown("## Analytics")
-        analytics_tabs = st.tabs(["Activity Feed", "Recent Trades", "Performance Logs"])
+        st.markdown("## Activity & History")
+        analytics_tabs = st.tabs(["Recent Activity", "Recent Trades", "Performance Logs"])
 
         with analytics_tabs[0]:
             activity = _build_activity_feed(trades_df, metrics_df)
@@ -762,8 +809,8 @@ def main() -> None:
             else:
                 st.info("No performance metrics logged yet.")
     else:
-        st.markdown("## Backtest Results")
-        st.info("Run a backtest to see metrics, charts, and recent analytics.")
+        st.markdown("## Test Results")
+        st.info("Run a backtest to see charts, trades, and stats.")
 
 
 if __name__ == "__main__":
