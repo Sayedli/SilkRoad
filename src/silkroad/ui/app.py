@@ -218,11 +218,11 @@ def _fetch_quote_snapshot(symbol: str) -> Optional[dict[str, Any]]:
         response.raise_for_status()
         payload = response.json()
     except Exception:
-        return None
+        return _fetch_quote_snapshot_fallback(symbol)
 
     result = (payload.get("quoteResponse") or {}).get("result") or []
     if not result:
-        return None
+        return _fetch_quote_snapshot_fallback(symbol)
     quote = result[0]
     return {
         "price": quote.get("regularMarketPrice"),
@@ -232,6 +232,60 @@ def _fetch_quote_snapshot(symbol: str) -> Optional[dict[str, Any]]:
         "currency": quote.get("currency"),
         "as_of": quote.get("regularMarketTime"),
     }
+
+
+def _fetch_quote_snapshot_fallback(symbol: str) -> Optional[dict[str, Any]]:
+    endpoint = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
+    try:
+        response = requests.get(endpoint, params={"range": "1d", "interval": "1m"}, timeout=5)
+        response.raise_for_status()
+        payload = response.json()
+    except Exception:
+        return None
+    result = (payload.get("chart") or {}).get("result") or []
+    if not result:
+        return None
+    meta = result[0].get("meta") or {}
+    return {
+        "price": meta.get("regularMarketPrice"),
+        "change": meta.get("regularMarketPrice") - meta.get("previousClose", 0.0)
+        if meta.get("regularMarketPrice") is not None and meta.get("previousClose") is not None
+        else None,
+        "change_percent": (
+            (meta.get("regularMarketPrice") - meta.get("previousClose"))
+            / meta.get("previousClose")
+            * 100.0
+            if meta.get("regularMarketPrice") is not None
+            and meta.get("previousClose") not in (None, 0)
+            else None
+        ),
+        "exchange": meta.get("exchangeName"),
+        "currency": meta.get("currency"),
+        "as_of": meta.get("regularMarketTime"),
+    }
+
+
+@st.cache_data(ttl=60)
+def _fetch_intraday_series(symbol: str) -> Optional[pd.Series]:
+    endpoint = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
+    try:
+        response = requests.get(endpoint, params={"range": "1d", "interval": "5m"}, timeout=5)
+        response.raise_for_status()
+        payload = response.json()
+    except Exception:
+        return None
+    result = (payload.get("chart") or {}).get("result") or []
+    if not result:
+        return None
+    timestamps = result[0].get("timestamp") or []
+    indicators = (result[0].get("indicators") or {}).get("quote") or []
+    if not timestamps or not indicators:
+        return None
+    closes = indicators[0].get("close") or []
+    if not closes:
+        return None
+    series = pd.Series(closes, index=pd.to_datetime(timestamps, unit="s"), name="price").dropna()
+    return series if not series.empty else None
 
 
 def _format_currency(value: float) -> str:
@@ -290,6 +344,15 @@ def _render_selected_instrument_notice() -> None:
         """,
         unsafe_allow_html=True,
     )
+    price_series = _fetch_intraday_series(instrument["symbol"])
+    if price_series is not None:
+        chart = _build_altair_chart(price_series, "price", "#7ef7b0")
+        if chart is not None:
+            st.altair_chart(chart, use_container_width=True)
+        else:
+            st.line_chart(price_series.to_frame(name="price"), use_container_width=True)
+    else:
+        st.caption("Intraday chart unavailable right now.")
     st.write(source_hint)
     st.code(
         f"""data:
