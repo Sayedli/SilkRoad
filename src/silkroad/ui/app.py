@@ -175,6 +175,29 @@ def _apply_robinhood_theme() -> None:
                 color: #9fb2c4;
                 font-size: 0.9rem;
             }
+            .sr-pill {
+                display: inline-flex;
+                align-items: center;
+                gap: 0.35rem;
+                padding: 0.3rem 0.7rem;
+                border-radius: 999px;
+                font-size: 0.85rem;
+                font-weight: 600;
+                background: rgba(255, 255, 255, 0.08);
+                color: #e8f0f6;
+            }
+            .sr-pill--bull {
+                background: rgba(0, 200, 120, 0.18);
+                color: #a7f6cb;
+            }
+            .sr-pill--bear {
+                background: rgba(255, 92, 92, 0.18);
+                color: #ffb3b3;
+            }
+            .sr-pill--neutral {
+                background: rgba(122, 162, 255, 0.2);
+                color: #bcd3ff;
+            }
         </style>
         """,
         unsafe_allow_html=True,
@@ -568,6 +591,71 @@ def _render_insights(ohlc: pd.DataFrame) -> None:
     )
 
 
+def _render_pattern_insights(ohlc: pd.DataFrame) -> None:
+    st.markdown("### Pattern Insights (Educational)")
+    close = ohlc["close"].dropna()
+    if close.empty:
+        st.info("Not enough data to build pattern insights.")
+        return
+
+    sma20 = close.rolling(20).mean()
+    sma50 = close.rolling(50).mean()
+    trend_score = 1 if sma20.iloc[-1] > sma50.iloc[-1] else -1
+
+    rolling_high = close.rolling(20).max()
+    rolling_low = close.rolling(20).min()
+    breakout_score = 0
+    if close.iloc[-1] >= rolling_high.iloc[-1]:
+        breakout_score = 1
+    elif close.iloc[-1] <= rolling_low.iloc[-1]:
+        breakout_score = -1
+
+    momentum_score = 0
+    if len(close) >= 15:
+        delta = close.diff()
+        gain = delta.clip(lower=0).rolling(14).mean()
+        loss = -delta.clip(upper=0).rolling(14).mean()
+        rs = gain / loss.replace(0, pd.NA)
+        rsi = 100 - (100 / (1 + rs))
+        last_rsi = rsi.iloc[-1]
+        if last_rsi >= 70:
+            momentum_score = -0.5
+        elif last_rsi <= 30:
+            momentum_score = 0.5
+
+    score = trend_score + breakout_score + momentum_score
+    if score >= 1.5:
+        bias = "Bullish"
+        pill_class = "sr-pill sr-pill--bull"
+    elif score <= -1.5:
+        bias = "Bearish"
+        pill_class = "sr-pill sr-pill--bear"
+    else:
+        bias = "Neutral"
+        pill_class = "sr-pill sr-pill--neutral"
+
+    confidence = min(abs(score) / 2.5, 1.0)
+    confidence_pct = f"{confidence * 100:.0f}%"
+
+    st.markdown(
+        f"""
+        <div class="{pill_class}">Pattern Bias · {bias}</div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    insight_cols = st.columns(3)
+    _metric_card(insight_cols[0], "Trend Read", "Uptrend" if trend_score > 0 else "Downtrend", "SMA20 vs SMA50")
+    breakout_label = "Breakout" if breakout_score > 0 else "Breakdown" if breakout_score < 0 else "Range"
+    _metric_card(insight_cols[1], "Structure", breakout_label, "20-day high/low")
+    _metric_card(insight_cols[2], "Signal Strength", confidence_pct, "Heuristic score")
+
+    st.caption(
+        "These pattern insights are heuristic and for education only. "
+        "They are not trade recommendations. Backtest before acting."
+    )
+
+
 def _fetch_intraday_series_stooq(symbol: str) -> Optional[pd.Series]:
     stooq_symbol = _normalize_stooq_symbol(symbol)
     if not stooq_symbol:
@@ -729,6 +817,7 @@ def _render_selected_instrument_notice() -> None:
     ohlc = _render_price_chart(instrument["symbol"])
     if ohlc is not None:
         _render_insights(ohlc)
+        _render_pattern_insights(ohlc)
     st.write(source_hint)
     st.code(
         f"""data:
