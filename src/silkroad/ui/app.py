@@ -438,7 +438,7 @@ def _fetch_price_ohlc_stooq(symbol: str, range_value: str) -> Optional[pd.DataFr
     return df
 
 
-def _render_price_chart(symbol: str) -> None:
+def _render_price_chart(symbol: str) -> Optional[pd.DataFrame]:
     st.markdown("### Price Chart")
     ranges = {
         "1D": ("1d", "5m"),
@@ -454,9 +454,14 @@ def _render_price_chart(symbol: str) -> None:
     ohlc = _fetch_price_ohlc(symbol, range_value, interval)
     if ohlc is None or ohlc.empty:
         st.info("Price chart unavailable right now.")
-        return
+        return None
 
     if alt is not None:
+        price_lines = (
+            alt.Chart(ohlc)
+            .transform_window(sma20="mean(close)", frame=[-19, 0])
+            .transform_window(sma50="mean(close)", frame=[-49, 0])
+        )
         base = alt.Chart(ohlc).encode(x=alt.X("timestamp:T", title=""))
         color = alt.condition("datum.open <= datum.close", alt.value("#1bd57e"), alt.value("#ff5c5c"))
         wick = base.mark_rule().encode(y="low:Q", y2="high:Q", color=color)
@@ -473,16 +478,63 @@ def _render_price_chart(symbol: str) -> None:
                 alt.Tooltip("volume:Q", format=".0f"),
             ],
         )
+        sma20 = price_lines.mark_line(color="#7aa2ff", strokeWidth=2).encode(y="sma20:Q")
+        sma50 = price_lines.mark_line(color="#f7b731", strokeWidth=2).encode(y="sma50:Q")
         volume = (
             alt.Chart(ohlc)
             .mark_bar(opacity=0.3, color="#7aa2ff")
             .encode(x="timestamp:T", y=alt.Y("volume:Q", title="Volume"))
             .properties(height=80)
         )
-        st.altair_chart((wick + candle).properties(height=280), use_container_width=True)
+        st.altair_chart((wick + candle + sma20 + sma50).properties(height=280), use_container_width=True)
         st.altair_chart(volume, use_container_width=True)
     else:
         st.line_chart(ohlc.set_index("timestamp")[["close"]], use_container_width=True)
+    return ohlc
+
+
+def _render_insights(ohlc: pd.DataFrame) -> None:
+    st.markdown("### Market Snapshot (Not Financial Advice)")
+    close = ohlc["close"].dropna()
+    if close.empty:
+        st.info("Not enough data to build a snapshot.")
+        return
+    returns = close.pct_change().dropna()
+    sma20 = close.rolling(20).mean()
+    sma50 = close.rolling(50).mean()
+    latest = close.iloc[-1]
+    trend = "Neutral"
+    if sma20.iloc[-1] > sma50.iloc[-1] and latest > sma20.iloc[-1]:
+        trend = "Bullish"
+    elif sma20.iloc[-1] < sma50.iloc[-1] and latest < sma20.iloc[-1]:
+        trend = "Bearish"
+    momentum = "Neutral"
+    if len(close) >= 15:
+        delta = close.diff()
+        gain = delta.clip(lower=0).rolling(14).mean()
+        loss = -delta.clip(upper=0).rolling(14).mean()
+        rs = gain / loss.replace(0, pd.NA)
+        rsi = 100 - (100 / (1 + rs))
+        last_rsi = rsi.iloc[-1]
+        if last_rsi >= 70:
+            momentum = "Overbought"
+        elif last_rsi <= 30:
+            momentum = "Oversold"
+        else:
+            momentum = "Neutral"
+    vol = returns.std() * (252**0.5) if not returns.empty else 0.0
+    week_change = (close.iloc[-1] / close.iloc[-6] - 1) if len(close) >= 6 else 0.0
+
+    card_cols = st.columns(4)
+    _metric_card(card_cols[0], "Trend", trend, "SMA20 vs SMA50")
+    _metric_card(card_cols[1], "Momentum", momentum, "RSI (14)")
+    _metric_card(card_cols[2], "Volatility", _format_percent(vol), "Annualized")
+    _metric_card(card_cols[3], "1W Change", _format_percent(week_change), "Last 5 sessions")
+
+    st.caption(
+        "These are technical indicators, not predictions or trading advice. "
+        "Use this snapshot for learning and testing strategies."
+    )
 
 
 def _fetch_intraday_series_stooq(symbol: str) -> Optional[pd.Series]:
@@ -643,7 +695,9 @@ def _render_selected_instrument_notice() -> None:
             st.line_chart(price_series.to_frame(name="price"), use_container_width=True)
     else:
         st.caption("Intraday chart unavailable right now.")
-    _render_price_chart(instrument["symbol"])
+    ohlc = _render_price_chart(instrument["symbol"])
+    if ohlc is not None:
+        _render_insights(ohlc)
     st.write(source_hint)
     st.code(
         f"""data:
