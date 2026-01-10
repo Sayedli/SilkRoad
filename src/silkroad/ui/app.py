@@ -347,6 +347,144 @@ def _fetch_intraday_series(symbol: str) -> Optional[pd.Series]:
     return series if not series.empty else None
 
 
+@st.cache_data(ttl=60)
+def _fetch_price_ohlc(symbol: str, range_value: str, interval: str) -> Optional[pd.DataFrame]:
+    endpoint = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
+    try:
+        response = requests.get(
+            endpoint,
+            params={"range": range_value, "interval": interval},
+            headers=_get_request_headers(),
+            timeout=5,
+        )
+        response.raise_for_status()
+        payload = response.json()
+    except Exception:
+        return _fetch_price_ohlc_stooq(symbol, range_value)
+    result = (payload.get("chart") or {}).get("result") or []
+    if not result:
+        return _fetch_price_ohlc_stooq(symbol, range_value)
+    data = result[0]
+    timestamps = data.get("timestamp") or []
+    indicators = (data.get("indicators") or {}).get("quote") or []
+    if not timestamps or not indicators:
+        return _fetch_price_ohlc_stooq(symbol, range_value)
+    quote = indicators[0]
+    df = pd.DataFrame(
+        {
+            "timestamp": pd.to_datetime(timestamps, unit="s"),
+            "open": quote.get("open"),
+            "high": quote.get("high"),
+            "low": quote.get("low"),
+            "close": quote.get("close"),
+            "volume": quote.get("volume"),
+        }
+    ).dropna(subset=["close"])
+    if df.empty:
+        return _fetch_price_ohlc_stooq(symbol, range_value)
+    return df
+
+
+def _fetch_price_ohlc_stooq(symbol: str, range_value: str) -> Optional[pd.DataFrame]:
+    stooq_symbol = _normalize_stooq_symbol(symbol)
+    if not stooq_symbol:
+        return None
+    endpoint = "https://stooq.com/q/d/l/"
+    try:
+        response = requests.get(
+            endpoint,
+            params={"s": stooq_symbol, "i": "d"},
+            headers=_get_request_headers(),
+            timeout=5,
+        )
+        response.raise_for_status()
+    except Exception:
+        return None
+    lines = response.text.strip().splitlines()
+    if len(lines) < 2:
+        return None
+    header = [item.strip().lower() for item in lines[0].split(",")]
+    required = {"date", "open", "high", "low", "close", "volume"}
+    if not required.issubset(set(header)):
+        return None
+    idx = {name: header.index(name) for name in required}
+    rows = []
+    for row in lines[1:]:
+        parts = row.split(",")
+        if len(parts) <= max(idx.values()):
+            continue
+        try:
+            rows.append(
+                {
+                    "timestamp": pd.to_datetime(parts[idx["date"]]),
+                    "open": float(parts[idx["open"]]),
+                    "high": float(parts[idx["high"]]),
+                    "low": float(parts[idx["low"]]),
+                    "close": float(parts[idx["close"]]),
+                    "volume": float(parts[idx["volume"]]),
+                }
+            )
+        except Exception:
+            continue
+    if not rows:
+        return None
+    df = pd.DataFrame(rows).sort_values("timestamp")
+    if range_value == "1mo":
+        return df.tail(22)
+    if range_value == "6mo":
+        return df.tail(126)
+    if range_value == "1y":
+        return df.tail(252)
+    return df
+
+
+def _render_price_chart(symbol: str) -> None:
+    st.markdown("### Price Chart")
+    ranges = {
+        "1D": ("1d", "5m"),
+        "1W": ("5d", "30m"),
+        "1M": ("1mo", "1d"),
+        "6M": ("6mo", "1d"),
+        "1Y": ("1y", "1d"),
+    }
+    range_choice = st.radio(
+        "Time range", list(ranges.keys()), horizontal=True, label_visibility="collapsed"
+    )
+    range_value, interval = ranges[range_choice]
+    ohlc = _fetch_price_ohlc(symbol, range_value, interval)
+    if ohlc is None or ohlc.empty:
+        st.info("Price chart unavailable right now.")
+        return
+
+    if alt is not None:
+        base = alt.Chart(ohlc).encode(x=alt.X("timestamp:T", title=""))
+        color = alt.condition("datum.open <= datum.close", alt.value("#1bd57e"), alt.value("#ff5c5c"))
+        wick = base.mark_rule().encode(y="low:Q", y2="high:Q", color=color)
+        candle = base.mark_bar(size=6).encode(
+            y="open:Q",
+            y2="close:Q",
+            color=color,
+            tooltip=[
+                alt.Tooltip("timestamp:T", title="Time"),
+                alt.Tooltip("open:Q", format=".2f"),
+                alt.Tooltip("high:Q", format=".2f"),
+                alt.Tooltip("low:Q", format=".2f"),
+                alt.Tooltip("close:Q", format=".2f"),
+                alt.Tooltip("volume:Q", format=".0f"),
+            ],
+        )
+        volume = (
+            alt.Chart(ohlc)
+            .mark_bar(opacity=0.3, color="#7aa2ff")
+            .encode(x="timestamp:T", y=alt.Y("volume:Q", title="Volume"))
+            .properties(height=80)
+        )
+        st.altair_chart((wick + candle).properties(height=280), use_container_width=True)
+        st.altair_chart(volume, use_container_width=True)
+    else:
+        st.line_chart(ohlc.set_index("timestamp")[["close"]], use_container_width=True)
+
+
 def _fetch_intraday_series_stooq(symbol: str) -> Optional[pd.Series]:
     stooq_symbol = _normalize_stooq_symbol(symbol)
     if not stooq_symbol:
@@ -505,6 +643,7 @@ def _render_selected_instrument_notice() -> None:
             st.line_chart(price_series.to_frame(name="price"), use_container_width=True)
     else:
         st.caption("Intraday chart unavailable right now.")
+    _render_price_chart(instrument["symbol"])
     st.write(source_hint)
     st.code(
         f"""data:
