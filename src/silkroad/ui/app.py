@@ -360,15 +360,18 @@ def _fetch_price_ohlc(symbol: str, range_value: str, interval: str) -> Optional[
         response.raise_for_status()
         payload = response.json()
     except Exception:
-        return _fetch_price_ohlc_stooq(symbol, range_value)
+        fallback = _fetch_price_ohlc_stooq(symbol, range_value)
+        return _limit_ohlc_range(fallback, range_value) if fallback is not None else None
     result = (payload.get("chart") or {}).get("result") or []
     if not result:
-        return _fetch_price_ohlc_stooq(symbol, range_value)
+        fallback = _fetch_price_ohlc_stooq(symbol, range_value)
+        return _limit_ohlc_range(fallback, range_value) if fallback is not None else None
     data = result[0]
     timestamps = data.get("timestamp") or []
     indicators = (data.get("indicators") or {}).get("quote") or []
     if not timestamps or not indicators:
-        return _fetch_price_ohlc_stooq(symbol, range_value)
+        fallback = _fetch_price_ohlc_stooq(symbol, range_value)
+        return _limit_ohlc_range(fallback, range_value) if fallback is not None else None
     quote = indicators[0]
     df = pd.DataFrame(
         {
@@ -381,8 +384,9 @@ def _fetch_price_ohlc(symbol: str, range_value: str, interval: str) -> Optional[
         }
     ).dropna(subset=["close"])
     if df.empty:
-        return _fetch_price_ohlc_stooq(symbol, range_value)
-    return df
+        fallback = _fetch_price_ohlc_stooq(symbol, range_value)
+        return _limit_ohlc_range(fallback, range_value) if fallback is not None else None
+    return _limit_ohlc_range(df, range_value)
 
 
 def _fetch_price_ohlc_stooq(symbol: str, range_value: str) -> Optional[pd.DataFrame]:
@@ -464,9 +468,11 @@ def _render_price_chart(symbol: str) -> Optional[pd.DataFrame]:
         )
         base = alt.Chart(ohlc).encode(x=alt.X("timestamp:T", title=""))
         color = alt.condition("datum.open <= datum.close", alt.value("#1bd57e"), alt.value("#ff5c5c"))
-        wick = base.mark_rule().encode(y="low:Q", y2="high:Q", color=color)
+        wick = base.mark_rule().encode(
+            y=alt.Y("low:Q", title="Price"), y2="high:Q", color=color
+        )
         candle = base.mark_bar(size=6).encode(
-            y="open:Q",
+            y=alt.Y("open:Q", title="Price"),
             y2="close:Q",
             color=color,
             tooltip=[
@@ -478,8 +484,12 @@ def _render_price_chart(symbol: str) -> Optional[pd.DataFrame]:
                 alt.Tooltip("volume:Q", format=".0f"),
             ],
         )
-        sma20 = price_lines.mark_line(color="#7aa2ff", strokeWidth=2).encode(y="sma20:Q")
-        sma50 = price_lines.mark_line(color="#f7b731", strokeWidth=2).encode(y="sma50:Q")
+        sma20 = price_lines.mark_line(color="#7aa2ff", strokeWidth=2).encode(
+            y=alt.Y("sma20:Q", title="Price")
+        )
+        sma50 = price_lines.mark_line(color="#f7b731", strokeWidth=2).encode(
+            y=alt.Y("sma50:Q", title="Price")
+        )
         volume = (
             alt.Chart(ohlc)
             .mark_bar(opacity=0.3, color="#7aa2ff")
@@ -491,6 +501,27 @@ def _render_price_chart(symbol: str) -> Optional[pd.DataFrame]:
     else:
         st.line_chart(ohlc.set_index("timestamp")[["close"]], use_container_width=True)
     return ohlc
+
+
+def _limit_ohlc_range(ohlc: pd.DataFrame, range_value: str) -> pd.DataFrame:
+    if ohlc.empty or "timestamp" not in ohlc.columns:
+        return ohlc
+    end = ohlc["timestamp"].max()
+    if not isinstance(end, pd.Timestamp):
+        end = pd.to_datetime(end)
+    days_map = {
+        "1d": 1,
+        "5d": 5,
+        "1mo": 31,
+        "6mo": 183,
+        "1y": 366,
+    }
+    days = days_map.get(range_value)
+    if not days:
+        return ohlc
+    start = end - pd.Timedelta(days=days)
+    trimmed = ohlc[ohlc["timestamp"] >= start].copy()
+    return trimmed if not trimmed.empty else ohlc
 
 
 def _render_insights(ohlc: pd.DataFrame) -> None:
